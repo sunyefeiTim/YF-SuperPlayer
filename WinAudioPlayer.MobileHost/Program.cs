@@ -10,7 +10,8 @@ builder.WebHost.UseStaticWebAssets();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .WithOrigins("https://sunyefeitim.github.io")
     .AllowAnyHeader()
-    .AllowAnyMethod()));
+    .AllowAnyMethod()
+    .WithExposedHeaders("Content-Disposition")));
 builder.Services.AddHttpClient("music-source", client =>
 {
     client.BaseAddress = new Uri(musicHome);

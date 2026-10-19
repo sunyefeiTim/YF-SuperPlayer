@@ -303,7 +303,7 @@
         try
         {
             SongFile downloaded = await JS.InvokeAsync<SongFile>("yfPlayer.downloadOnlineTrack",
-                "api/music/download", new
+                new Uri(Http.BaseAddress!, "api/music/download").ToString(), new
                 {
                     Platform = searchPlatform, song.Id, song.Name, song.Artist, song.Time, song.Sign,
                     quality.Format, quality.Bitrate
