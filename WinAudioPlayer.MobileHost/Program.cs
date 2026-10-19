@@ -7,6 +7,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
 builder.WebHost.UseStaticWebAssets();
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
+    .WithOrigins("https://sunyefeitim.github.io")
+    .AllowAnyHeader()
+    .AllowAnyMethod()));
 builder.Services.AddHttpClient("music-source", client =>
 {
     client.BaseAddress = new Uri(musicHome);
@@ -16,8 +20,11 @@ builder.Services.AddHttpClient("music-source", client =>
 });
 
 var app = builder.Build();
+app.UseCors();
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
+
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 app.MapPost("/api/music/search", async (MusicSearchRequest request, IHttpClientFactory clients) =>
 {

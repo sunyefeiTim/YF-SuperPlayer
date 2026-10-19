@@ -61,13 +61,7 @@
                        placeholder="输入歌名、歌手或专辑" aria-label="搜索关键词" />
                 <button @onclick="SearchOnlineAsync" disabled="@searching">@(searching ? "搜索中" : "搜索")</button>
             </div>
-            @if (!OnlineSearchAvailable)
-            {
-                <div class="search-status">@(string.IsNullOrWhiteSpace(searchStatus)
-                    ? "公开测试版的在线搜索与下载服务正在部署中，本地导入、播放和离线保存可以正常使用。"
-                    : searchStatus)</div>
-            }
-            else if (!string.IsNullOrWhiteSpace(searchStatus))
+            @if (!string.IsNullOrWhiteSpace(searchStatus))
             {
                 <div class="search-status">@searchStatus</div>
             }
@@ -159,7 +153,6 @@
     private string StorageSummary => storageBytes <= 0
         ? "刷新或重新打开后仍会保留"
         : $"歌曲占用 {FormatBytes(storageBytes)}" + (storageQuotaBytes > 0 ? $" · 浏览器配额约 {FormatBytes(storageQuotaBytes)}" : "");
-    private bool OnlineSearchAvailable => !Navigation.BaseUri.Contains("github.io", StringComparison.OrdinalIgnoreCase);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -267,11 +260,6 @@
     {
         string keyword = searchKeyword.Trim();
         if (keyword.Length == 0) { searchStatus = "请输入歌名、歌手或专辑后再搜索"; return; }
-        if (!OnlineSearchAvailable)
-        {
-            searchStatus = $"暂时无法搜索“{keyword}”：公开版在线服务尚未部署，本地导入和播放不受影响。";
-            return;
-        }
         searching = true;
         searchStatus = $"正在搜索：{keyword}";
         searchResults.Clear();
