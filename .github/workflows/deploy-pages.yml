@@ -5,8 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/deploy-pages.yml"
-      - "WinAudioPlayer.Core/**"
-      - "WinAudioPlayer.MobileWeb/**"
+      - "github-pages/**"
   workflow_dispatch:
 
 permissions:
@@ -28,20 +27,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-
-      - name: Publish PWA
-        run: dotnet publish WinAudioPlayer.MobileWeb/WinAudioPlayer.MobileWeb.csproj -c Release -o publish
-
       - name: Prepare GitHub Pages paths
         shell: bash
         run: |
-          sed -i 's|<base href="/" />|<base href="/YF-SuperPlayer/" />|' publish/wwwroot/index.html
-          cp publish/wwwroot/index.html publish/wwwroot/404.html
-          touch publish/wwwroot/.nojekyll
+          mkdir -p publish
+          cp github-pages/index.html publish/index.html
+          cp github-pages/index.html publish/404.html
+          cp github-pages/service-worker.js publish/service-worker.js
+          touch publish/.nojekyll
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -49,7 +42,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: publish/wwwroot
+          path: publish
 
       - name: Deploy to GitHub Pages
         id: deployment

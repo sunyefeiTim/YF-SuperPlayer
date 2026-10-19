@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101113">
+  <title>正在打开 YF-Super Player</title>
+  <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#101315;color:#eef2ef;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;text-align:center}.mark{font-size:54px}.text{margin-top:14px;color:#97a39d}</style>
+</head>
+<body>
+  <main><div class="mark">♫</div><div class="text">正在打开受保护的播放器…</div></main>
+  <script>
+    const destination = 'https://yf-superplayer-api-sunyefeitim.onrender.com/';
+    Promise.all([
+      navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(items => Promise.all(items.map(item => item.unregister()))) : null,
+      window.caches ? caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key)))) : null
+    ]).finally(() => location.replace(destination));
+  </script>
+</body>
+</html>
