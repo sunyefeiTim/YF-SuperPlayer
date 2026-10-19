@@ -84,8 +84,11 @@ app.MapPost("/api/music/download", async (MusicDownloadRequest request, IHttpCli
     JsonElement root = json.RootElement;
     if (!root.TryGetProperty("code", out JsonElement code) || code.GetInt32() != 0)
         return Results.BadRequest(new { message = Text(root, "msg", "没有获得下载地址") });
-    string? url = root.GetProperty("data").GetProperty("url").GetString();
+    JsonElement resolvedData = root.GetProperty("data");
+    string? url = resolvedData.GetProperty("url").GetString();
     if (string.IsNullOrWhiteSpace(url)) return Results.BadRequest(new { message = "没有获得下载地址" });
+    string actualFormat = Text(resolvedData, "format", format).ToLowerInvariant();
+    if (actualFormat == "aac") actualFormat = "m4a";
 
     using HttpResponseMessage media = await client.GetAsync(url);
     media.EnsureSuccessStatusCode();
@@ -94,11 +97,16 @@ app.MapPost("/api/music/download", async (MusicDownloadRequest request, IHttpCli
         && !mediaType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase))
         return Results.BadRequest(new { message = "音乐平台没有开放这首歌曲的下载" });
     byte[] bytes = await media.Content.ReadAsByteArrayAsync();
-    if (!HasExpectedAudioHeader(bytes, format))
+    if (!HasExpectedAudioHeader(bytes, actualFormat))
         return Results.BadRequest(new { message = "下载内容不是有效的音频文件，请尝试其他音质或歌曲" });
     string stem = string.IsNullOrWhiteSpace(request.Artist) ? request.Name : $"{request.Name}-{request.Artist}";
-    string fileName = SanitizeFileName(stem) + "." + format;
-    string verifiedMediaType = format == "flac" ? "audio/flac" : "audio/mpeg";
+    string fileName = SanitizeFileName(stem) + "." + actualFormat;
+    string verifiedMediaType = actualFormat switch
+    {
+        "flac" => "audio/flac",
+        "m4a" => "audio/mp4",
+        _ => "audio/mpeg"
+    };
     return Results.File(bytes, verifiedMediaType, fileName);
 });
 
@@ -141,6 +149,9 @@ static bool HasExpectedAudioHeader(byte[] bytes, string format)
     if (format == "flac")
         return bytes.Length >= 4 && bytes[0] == (byte)'f' && bytes[1] == (byte)'L'
             && bytes[2] == (byte)'a' && bytes[3] == (byte)'C';
+    if (format is "m4a" or "aac")
+        return bytes.Length >= 12 && bytes[4] == (byte)'f' && bytes[5] == (byte)'t'
+            && bytes[6] == (byte)'y' && bytes[7] == (byte)'p';
     if (bytes.Length < 2) return false;
     bool hasId3 = bytes.Length >= 3 && bytes[0] == (byte)'I' && bytes[1] == (byte)'D' && bytes[2] == (byte)'3';
     bool hasFrameSync = bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0;

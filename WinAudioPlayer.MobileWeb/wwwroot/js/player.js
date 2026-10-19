@@ -203,9 +203,10 @@ window.yfPlayer = (() => {
                 throw new Error(message);
             }
             const receivedBlob = await response.blob();
-            const expectedType = String(request.format).toLowerCase() === "flac" ? "audio/flac" : "audio/mpeg";
-            const blob = receivedBlob.type === expectedType
-                ? receivedBlob : new Blob([receivedBlob], { type: expectedType });
+            const responseType = String(receivedBlob.type || "");
+            const fallbackType = String(request.format).toLowerCase() === "flac" ? "audio/flac" : "audio/mpeg";
+            const blob = responseType.startsWith("audio/")
+                ? receivedBlob : new Blob([receivedBlob], { type: fallbackType });
             const disposition = response.headers.get("Content-Disposition") || "";
             const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
             const quoted = disposition.match(/filename="?([^";]+)"?/i)?.[1];
