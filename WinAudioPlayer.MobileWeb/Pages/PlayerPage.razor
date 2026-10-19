@@ -1,0 +1,431 @@
+@page "/"
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject HttpClient Http
+
+<PageTitle>YF-Super Player</PageTitle>
+
+<main class="app-shell">
+    <header class="app-header">
+        <img class="app-mark" src="icons/app-icon.png" alt="YF-Super Player" />
+        <div>
+            <div class="app-name">YF-Super Player</div>
+            <div class="app-subtitle">我的移动音乐库</div>
+        </div>
+        <label class="import-button" for="songPicker">＋ 导入歌曲</label>
+        <input id="songPicker" @ref="songPicker" class="file-picker" type="file" multiple
+               accept="audio/*,.mp3,.flac,.wav,.m4a,.aac,.ogg" @onchange="ImportSongsAsync" />
+    </header>
+
+    <section class="storage-status" aria-label="离线存储状态">
+        <span class="storage-dot"></span>
+        <span><strong>自动保存在播放器中</strong><small>@StorageSummary</small></span>
+        <span class="storage-count">@songs.Count 首</span>
+    </section>
+
+    <section class="now-playing">
+        <div class="cover-wrap">
+            <img src="icons/app-icon.png" alt="当前歌曲封面" />
+            <span class="playing-pulse @(isPlaying ? "active" : "")"></span>
+        </div>
+        <div class="track-copy">
+            <div class="eyebrow">正在播放</div>
+            <h1>@CurrentTitle</h1>
+            <p>@CurrentArtist</p>
+        </div>
+    </section>
+
+    <section class="transport" aria-label="播放控制">
+        <input class="progress" type="range" min="0" max="1000" value="@progressValue"
+               @oninput="SeekAsync" disabled="@(currentIndex < 0)" aria-label="歌曲进度" />
+        <div class="time-row"><span>@FormatTime(currentSeconds)</span><span>@FormatTime(durationSeconds)</span></div>
+        <div class="button-row">
+            <button class="transport-button" @onclick="PreviousAsync" disabled="@(songs.Count == 0)" aria-label="上一首">◀</button>
+            <button class="play-button" @onclick="TogglePlaybackAsync" disabled="@(songs.Count == 0)" aria-label="@(isPlaying ? "暂停" : "播放")">
+                @(isPlaying ? "Ⅱ" : "▶")
+            </button>
+            <button class="transport-button" @onclick="NextAsync" disabled="@(songs.Count == 0)" aria-label="下一首">▶</button>
+        </div>
+    </section>
+
+    <section class="online-search">
+        <div class="section-heading">
+            <div><span class="eyebrow">在线音乐</span><h2>搜索下载</h2></div>
+            <button class="search-toggle" @onclick="() => showSearch = !showSearch">@(showSearch ? "收起" : "打开")</button>
+        </div>
+        @if (showSearch)
+        {
+            <div class="search-bar">
+                <select @bind="searchPlatform" aria-label="音乐平台"><option value="kuwo">酷我</option><option value="wyy">网易云</option></select>
+                <input @bind="searchKeyword" @bind:event="oninput" @onkeydown="SearchKeyDownAsync"
+                       placeholder="输入歌名、歌手或专辑" aria-label="搜索关键词" />
+                <button @onclick="SearchOnlineAsync" disabled="@searching">@(searching ? "搜索中" : "搜索")</button>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(searchStatus))
+            {
+                <div class="search-status">@searchStatus</div>
+            }
+            @if (searchResults.Count > 0)
+            {
+                <div class="search-results">
+                    @foreach (OnlineSong song in searchResults)
+                    {
+                        <div class="search-result">
+                            <span class="song-details"><strong>@song.Name</strong><small>@song.Artist · @song.Album</small></span>
+                            <select class="quality-select" value="@SelectedQualityKey(song)"
+                                    @onchange="args => SetSelectedQuality(song, args.Value?.ToString())"
+                                    aria-label="@song.Name 音质">
+                                @foreach (OnlineQuality quality in OrderedQualities(song))
+                                {
+                                    <option value="@QualityKey(quality)">@QualityLabel(quality)</option>
+                                }
+                            </select>
+                            <button class="online-download" @onclick="() => DownloadOnlineAsync(song)"
+                                    disabled="@(downloadingId == song.Id)">@(downloadingId == song.Id ? "下载中" : "下载")</button>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </section>
+
+    <section class="library">
+        <div class="section-heading">
+            <div><span class="eyebrow">本机音乐</span><h2>播放列表</h2></div>
+            <span class="song-count">@songs.Count 首</span>
+        </div>
+        @if (songs.Count == 0)
+        {
+            <button class="empty-library" @onclick="OpenPickerAsync">
+                <span class="empty-icon">♫</span>
+                <strong>选择手机里的歌曲</strong>
+                <small>导入后会自动留在播放器中；需要普通文件时可另存到手机</small>
+            </button>
+        }
+        else
+        {
+            <div class="song-list">
+                @for (int index = 0; index < songs.Count; index++)
+                {
+                    int capturedIndex = index;
+                    SongFile song = songs[index];
+                    <div class="song-row @(capturedIndex == currentIndex ? "selected" : "")">
+                        <button class="song-main" @onclick="() => PlayTrackAsync(capturedIndex)"
+                                aria-label="播放 @song.Title">
+                            <span class="song-number">@(capturedIndex == currentIndex && isPlaying ? "♪" : (capturedIndex + 1).ToString("00"))</span>
+                            <span class="song-details"><strong>@song.Title</strong><small>@song.FileType · 已保存到播放器</small></span>
+                            <span class="row-play">▶</span>
+                        </button>
+                        <button class="save-song" @onclick="() => SaveToDeviceAsync(song)"
+                                title="保存到手机" aria-label="将 @song.Title 保存到手机">⇩</button>
+                        <button class="delete-song" @onclick="() => DeleteSongAsync(song)"
+                                title="从播放器删除" aria-label="从播放器删除 @song.Title">×</button>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+</main>
+
+@code {
+    private ElementReference songPicker;
+    private readonly List<SongFile> songs = new();
+    private DotNetObjectReference<PlayerPage>? selfReference;
+    private int currentIndex = -1;
+    private bool isPlaying;
+    private double currentSeconds;
+    private double durationSeconds;
+    private int progressValue;
+    private int loadedIndex = -1;
+    private bool showSearch;
+    private bool searching;
+    private string searchPlatform = "kuwo";
+    private string searchKeyword = string.Empty;
+    private string searchStatus = string.Empty;
+    private string downloadingId = string.Empty;
+    private readonly List<OnlineSong> searchResults = new();
+    private readonly Dictionary<string, string> selectedQualityKeys = new(StringComparer.Ordinal);
+    private long storageBytes;
+    private long storageQuotaBytes;
+
+    private string CurrentTitle => currentIndex >= 0 ? songs[currentIndex].Title : "还没有播放歌曲";
+    private string CurrentArtist => currentIndex >= 0 ? "本地音乐" : "点击导入歌曲开始";
+    private string StorageSummary => storageBytes <= 0
+        ? "刷新或重新打开后仍会保留"
+        : $"歌曲占用 {FormatBytes(storageBytes)}" + (storageQuotaBytes > 0 ? $" · 浏览器配额约 {FormatBytes(storageQuotaBytes)}" : "");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        selfReference = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("yfPlayer.initialize", selfReference);
+        SongFile[] savedSongs = await JS.InvokeAsync<SongFile[]>("yfPlayer.getSavedTracks");
+        songs.AddRange(savedSongs);
+        PlaybackMemory memory = await JS.InvokeAsync<PlaybackMemory>("yfPlayer.getPlaybackMemory");
+        if (songs.Count > 0)
+        {
+            currentIndex = Math.Max(0, songs.FindIndex(song =>
+                string.Equals(song.Id, memory.TrackId, StringComparison.Ordinal)));
+            currentSeconds = Math.Max(0, memory.CurrentSeconds);
+            durationSeconds = Math.Max(0, memory.DurationSeconds);
+            progressValue = durationSeconds > 0
+                ? Math.Clamp((int)Math.Round(currentSeconds / durationSeconds * 1000), 0, 1000)
+                : 0;
+        }
+        await RefreshStorageAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ImportSongsAsync(ChangeEventArgs _)
+    {
+        SongFile[] imported = await JS.InvokeAsync<SongFile[]>("yfPlayer.importFiles", songPicker);
+        foreach (SongFile song in imported)
+        {
+            if (songs.All(existing => !string.Equals(existing.Id, song.Id, StringComparison.Ordinal)))
+                songs.Add(song);
+        }
+        await RefreshStorageAsync();
+        if (currentIndex < 0 && songs.Count > 0) await PlayTrackAsync(0);
+    }
+
+    private async Task OpenPickerAsync() =>
+        await JS.InvokeVoidAsync("yfPlayer.openPicker", songPicker);
+
+    private async Task PlayTrackAsync(int index, double startSeconds = 0)
+    {
+        if (index < 0 || index >= songs.Count) return;
+        currentIndex = index;
+        loadedIndex = index;
+        currentSeconds = Math.Max(0, startSeconds);
+        durationSeconds = 0;
+        progressValue = 0;
+        SongFile song = songs[index];
+        await JS.InvokeVoidAsync("yfPlayer.playTrack", song.Url, song.Title, CurrentArtist,
+            new Uri(new Uri(NavigationBase), "icons/app-icon.png").ToString(), song.Id, currentSeconds);
+        isPlaying = true;
+    }
+
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    private string NavigationBase => Navigation.BaseUri;
+
+    private async Task TogglePlaybackAsync()
+    {
+        if (currentIndex < 0 && songs.Count > 0) await PlayTrackAsync(0);
+        else if (currentIndex >= 0 && loadedIndex != currentIndex)
+            await PlayTrackAsync(currentIndex, currentSeconds);
+        else await JS.InvokeVoidAsync("yfPlayer.toggle");
+    }
+
+    private Task PreviousAsync() => PlayTrackAsync(songs.Count == 0 ? -1 : Math.Max(0, currentIndex - 1));
+    private Task NextAsync() => PlayTrackAsync(songs.Count == 0 ? -1 : (currentIndex + 1) % songs.Count);
+
+    private async Task SaveToDeviceAsync(SongFile song) =>
+        await JS.InvokeVoidAsync("yfPlayer.downloadTrack", song.Id);
+
+    private async Task DeleteSongAsync(SongFile song)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", $"确定从播放器内部删除《{song.Title}》吗？");
+        if (!confirmed) return;
+        int removedIndex = songs.FindIndex(item => string.Equals(item.Id, song.Id, StringComparison.Ordinal));
+        if (removedIndex < 0) return;
+        bool removedCurrent = removedIndex == currentIndex;
+        await JS.InvokeVoidAsync("yfPlayer.deleteTrack", song.Id);
+        songs.RemoveAt(removedIndex);
+        if (removedCurrent)
+        {
+            currentIndex = songs.Count == 0 ? -1 : Math.Min(removedIndex, songs.Count - 1);
+            loadedIndex = -1;
+            currentSeconds = durationSeconds = 0;
+            progressValue = 0;
+            isPlaying = false;
+        }
+        else if (removedIndex < currentIndex) currentIndex--;
+        if (removedIndex < loadedIndex) loadedIndex--;
+        await RefreshStorageAsync();
+    }
+
+    private async Task RefreshStorageAsync()
+    {
+        StorageInfo info = await JS.InvokeAsync<StorageInfo>("yfPlayer.getStorageInfo");
+        storageBytes = Math.Max(0, info.TrackBytes);
+        storageQuotaBytes = Math.Max(0, info.QuotaBytes);
+    }
+
+    private async Task SearchKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") await SearchOnlineAsync();
+    }
+
+    private async Task SearchOnlineAsync()
+    {
+        string keyword = searchKeyword.Trim();
+        if (keyword.Length == 0) { searchStatus = "请输入搜索关键词"; return; }
+        searching = true;
+        searchStatus = $"正在搜索：{keyword}";
+        searchResults.Clear();
+        try
+        {
+            using HttpResponseMessage response = await Http.PostAsJsonAsync("api/music/search",
+                new { Platform = searchPlatform, Keyword = keyword });
+            if (!response.IsSuccessStatusCode)
+            {
+                ApiError? error = await response.Content.ReadFromJsonAsync<ApiError>();
+                throw new InvalidOperationException(error?.Message ?? "搜索失败");
+            }
+            List<OnlineSong>? results = await response.Content.ReadFromJsonAsync<List<OnlineSong>>();
+            if (results != null)
+            {
+                searchResults.AddRange(results);
+                selectedQualityKeys.Clear();
+                foreach (OnlineSong song in searchResults)
+                {
+                    OnlineQuality? best = OrderedQualities(song).FirstOrDefault();
+                    if (best != null) selectedQualityKeys[song.Id] = QualityKey(best);
+                }
+            }
+            searchStatus = searchResults.Count == 0 ? "没有找到结果" : $"找到 {searchResults.Count} 首歌曲";
+        }
+        catch (Exception ex)
+        {
+            searchStatus = $"搜索失败：{ex.Message}";
+        }
+        finally { searching = false; }
+    }
+
+    private async Task DownloadOnlineAsync(OnlineSong song)
+    {
+        string selectedKey = SelectedQualityKey(song);
+        OnlineQuality? quality = song.Qualities.FirstOrDefault(item => QualityKey(item) == selectedKey)
+            ?? OrderedQualities(song).FirstOrDefault();
+        if (quality == null) { searchStatus = "这首歌曲没有可用音质"; return; }
+        downloadingId = song.Id;
+        searchStatus = $"正在下载：{song.Name} - {song.Artist}";
+        try
+        {
+            SongFile downloaded = await JS.InvokeAsync<SongFile>("yfPlayer.downloadOnlineTrack",
+                "api/music/download", new
+                {
+                    Platform = searchPlatform, song.Id, song.Name, song.Artist, song.Time, song.Sign,
+                    quality.Format, quality.Bitrate
+                });
+            int existing = songs.FindIndex(item => string.Equals(item.Id, downloaded.Id, StringComparison.Ordinal));
+            if (existing >= 0) songs[existing] = downloaded;
+            else songs.Add(downloaded);
+            await RefreshStorageAsync();
+            searchStatus = $"已下载并保存到播放器：{song.Name}";
+            if (currentIndex < 0) currentIndex = songs.Count - 1;
+        }
+        catch (Exception ex)
+        {
+            searchStatus = $"下载失败：{ex.Message}";
+        }
+        finally { downloadingId = string.Empty; }
+    }
+
+    private static IEnumerable<OnlineQuality> OrderedQualities(OnlineSong song) => song.Qualities
+        .OrderByDescending(item => item.Format.Equals("flac", StringComparison.OrdinalIgnoreCase))
+        .ThenByDescending(item => int.TryParse(item.Bitrate, out int bitrate) ? bitrate : 0);
+
+    private string SelectedQualityKey(OnlineSong song)
+    {
+        if (selectedQualityKeys.TryGetValue(song.Id, out string? key)) return key;
+        OnlineQuality? best = OrderedQualities(song).FirstOrDefault();
+        return best == null ? string.Empty : QualityKey(best);
+    }
+
+    private void SetSelectedQuality(OnlineSong song, string? key)
+    {
+        if (!string.IsNullOrWhiteSpace(key)) selectedQualityKeys[song.Id] = key;
+    }
+
+    private static string QualityKey(OnlineQuality quality) => $"{quality.Format}|{quality.Bitrate}";
+    private static string QualityLabel(OnlineQuality quality)
+    {
+        string name = quality.Format.Equals("flac", StringComparison.OrdinalIgnoreCase)
+            ? "FLAC" : $"{quality.Bitrate}K MP3";
+        return string.IsNullOrWhiteSpace(quality.Size) ? name : $"{name} · {quality.Size}";
+    }
+
+    private async Task SeekAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out int value) || durationSeconds <= 0) return;
+        progressValue = Math.Clamp(value, 0, 1000);
+        await JS.InvokeVoidAsync("yfPlayer.seek", durationSeconds * progressValue / 1000d);
+    }
+
+    [JSInvokable]
+    public Task OnPlaybackState(double current, double duration, bool paused)
+    {
+        currentSeconds = double.IsFinite(current) ? Math.Max(0, current) : 0;
+        durationSeconds = double.IsFinite(duration) ? Math.Max(0, duration) : 0;
+        progressValue = durationSeconds > 0 ? Math.Clamp((int)Math.Round(currentSeconds / durationSeconds * 1000), 0, 1000) : 0;
+        isPlaying = !paused;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable] public Task OnTrackEnded() => NextAsync();
+    [JSInvokable] public Task OnMediaPrevious() => PreviousAsync();
+    [JSInvokable] public Task OnMediaNext() => NextAsync();
+
+    private static string FormatTime(double seconds)
+    {
+        if (!double.IsFinite(seconds) || seconds < 0) seconds = 0;
+        TimeSpan value = TimeSpan.FromSeconds(seconds);
+        return value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"m\:ss");
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes >= 1024L * 1024 * 1024) return $"{bytes / (1024d * 1024 * 1024):0.0} GB";
+        if (bytes >= 1024L * 1024) return $"{bytes / (1024d * 1024):0.0} MB";
+        return $"{Math.Max(0, bytes) / 1024d:0} KB";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("yfPlayer.dispose"); } catch { }
+        selfReference?.Dispose();
+    }
+
+    public sealed class SongFile
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string Url { get; set; } = string.Empty;
+        public string FileType { get; set; } = string.Empty;
+    }
+
+    public sealed class PlaybackMemory
+    {
+        public string TrackId { get; set; } = string.Empty;
+        public double CurrentSeconds { get; set; }
+        public double DurationSeconds { get; set; }
+    }
+
+    public sealed class OnlineSong
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Artist { get; set; } = string.Empty;
+        public string Album { get; set; } = string.Empty;
+        public int Duration { get; set; }
+        public long Time { get; set; }
+        public string Sign { get; set; } = string.Empty;
+        public List<OnlineQuality> Qualities { get; set; } = new();
+    }
+
+    public sealed class OnlineQuality
+    {
+        public string Format { get; set; } = string.Empty;
+        public string Bitrate { get; set; } = string.Empty;
+        public string Size { get; set; } = string.Empty;
+    }
+
+    public sealed class ApiError { public string Message { get; set; } = string.Empty; }
+    public sealed class StorageInfo
+    {
+        public long TrackBytes { get; set; }
+        public long QuotaBytes { get; set; }
+    }
+}

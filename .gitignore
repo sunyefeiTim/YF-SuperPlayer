@@ -1,0 +1,39 @@
+# Build output
+**/bin/
+**/obj/
+.buildcheck*/
+.objcheck*/
+publish/
+release/
+
+# Local development state
+.venv/
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Runtime state and caches
+*.db
+*.sqlite
+*.sqlite3
+*.log
+WinAudioPlayer.exe.WebView2/
+
+# Personal music files
+*.mp3
+*.flac
+*.wav
+*.wma
+*.aac
+*.m4a
+*.ogg
+*.opus
+*.ncm
+*.kwm
+*.kgg
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store

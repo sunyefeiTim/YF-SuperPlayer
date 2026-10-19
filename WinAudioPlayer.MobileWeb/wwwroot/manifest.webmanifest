@@ -1,0 +1,13 @@
+{
+  "name": "YF-Super Player",
+  "short_name": "YF Player",
+  "description": "YF-Super Player 移动音乐播放器",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#101113",
+  "theme_color": "#101113",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icons/app-icon.png", "sizes": "1254x1254", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
