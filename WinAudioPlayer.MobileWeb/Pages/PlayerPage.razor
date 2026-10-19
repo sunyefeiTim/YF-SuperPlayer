@@ -63,7 +63,9 @@
             </div>
             @if (!OnlineSearchAvailable)
             {
-                <div class="search-status">公开测试版的在线搜索与下载服务正在部署中，本地导入、播放和离线保存可以正常使用。</div>
+                <div class="search-status">@(string.IsNullOrWhiteSpace(searchStatus)
+                    ? "公开测试版的在线搜索与下载服务正在部署中，本地导入、播放和离线保存可以正常使用。"
+                    : searchStatus)</div>
             }
             else if (!string.IsNullOrWhiteSpace(searchStatus))
             {
@@ -263,13 +265,13 @@
 
     private async Task SearchOnlineAsync()
     {
+        string keyword = searchKeyword.Trim();
+        if (keyword.Length == 0) { searchStatus = "请输入歌名、歌手或专辑后再搜索"; return; }
         if (!OnlineSearchAvailable)
         {
-            searchStatus = "公开测试版的在线搜索与下载服务正在部署中";
+            searchStatus = $"暂时无法搜索“{keyword}”：公开版在线服务尚未部署，本地导入和播放不受影响。";
             return;
         }
-        string keyword = searchKeyword.Trim();
-        if (keyword.Length == 0) { searchStatus = "请输入搜索关键词"; return; }
         searching = true;
         searchStatus = $"正在搜索：{keyword}";
         searchResults.Clear();
