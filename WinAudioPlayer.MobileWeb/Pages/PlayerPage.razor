@@ -56,10 +56,10 @@
         @if (showSearch)
         {
             <div class="search-bar">
-                <select @bind="searchPlatform" disabled="@(!OnlineSearchAvailable)" aria-label="音乐平台"><option value="kuwo">酷我</option><option value="wyy">网易云</option></select>
+                <select @bind="searchPlatform" aria-label="音乐平台"><option value="kuwo">酷我</option><option value="wyy">网易云</option></select>
                 <input @bind="searchKeyword" @bind:event="oninput" @onkeydown="SearchKeyDownAsync"
-                       disabled="@(!OnlineSearchAvailable)" placeholder="输入歌名、歌手或专辑" aria-label="搜索关键词" />
-                <button @onclick="SearchOnlineAsync" disabled="@(searching || !OnlineSearchAvailable)">@(searching ? "搜索中" : "搜索")</button>
+                       placeholder="输入歌名、歌手或专辑" aria-label="搜索关键词" />
+                <button @onclick="SearchOnlineAsync" disabled="@searching">@(searching ? "搜索中" : "搜索")</button>
             </div>
             @if (!OnlineSearchAvailable)
             {
