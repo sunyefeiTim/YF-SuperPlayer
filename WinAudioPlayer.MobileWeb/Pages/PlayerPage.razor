@@ -56,12 +56,16 @@
         @if (showSearch)
         {
             <div class="search-bar">
-                <select @bind="searchPlatform" aria-label="音乐平台"><option value="kuwo">酷我</option><option value="wyy">网易云</option></select>
+                <select @bind="searchPlatform" disabled="@(!OnlineSearchAvailable)" aria-label="音乐平台"><option value="kuwo">酷我</option><option value="wyy">网易云</option></select>
                 <input @bind="searchKeyword" @bind:event="oninput" @onkeydown="SearchKeyDownAsync"
-                       placeholder="输入歌名、歌手或专辑" aria-label="搜索关键词" />
-                <button @onclick="SearchOnlineAsync" disabled="@searching">@(searching ? "搜索中" : "搜索")</button>
+                       disabled="@(!OnlineSearchAvailable)" placeholder="输入歌名、歌手或专辑" aria-label="搜索关键词" />
+                <button @onclick="SearchOnlineAsync" disabled="@(searching || !OnlineSearchAvailable)">@(searching ? "搜索中" : "搜索")</button>
             </div>
-            @if (!string.IsNullOrWhiteSpace(searchStatus))
+            @if (!OnlineSearchAvailable)
+            {
+                <div class="search-status">公开测试版的在线搜索与下载服务正在部署中，本地导入、播放和离线保存可以正常使用。</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(searchStatus))
             {
                 <div class="search-status">@searchStatus</div>
             }
@@ -153,6 +157,7 @@
     private string StorageSummary => storageBytes <= 0
         ? "刷新或重新打开后仍会保留"
         : $"歌曲占用 {FormatBytes(storageBytes)}" + (storageQuotaBytes > 0 ? $" · 浏览器配额约 {FormatBytes(storageQuotaBytes)}" : "");
+    private bool OnlineSearchAvailable => !Navigation.BaseUri.Contains("github.io", StringComparison.OrdinalIgnoreCase);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -258,6 +263,11 @@
 
     private async Task SearchOnlineAsync()
     {
+        if (!OnlineSearchAvailable)
+        {
+            searchStatus = "公开测试版的在线搜索与下载服务正在部署中";
+            return;
+        }
         string keyword = searchKeyword.Trim();
         if (keyword.Length == 0) { searchStatus = "请输入搜索关键词"; return; }
         searching = true;
