@@ -19,8 +19,14 @@
 
     <section class="storage-status" aria-label="离线存储状态">
         <span class="storage-dot"></span>
-        <span><strong>自动保存在播放器中</strong><small>@StorageSummary</small></span>
-        <span class="storage-count">@songs.Count 首</span>
+        <span><strong>自动保存在播放器中</strong><small>@StorageSummary@BackupSummary</small></span>
+        <span class="storage-actions">
+            <span class="storage-count">@songs.Count 首</span>
+            <button @onclick="BackupLibraryAsync" title="将播放器内部歌曲备份到文件">备份</button>
+            <label for="backupPicker" title="从备份文件恢复歌曲">恢复</label>
+        </span>
+        <input id="backupPicker" @ref="backupPicker" class="file-picker" type="file"
+               accept=".yfplayer,application/json" @onchange="RestoreLibraryAsync" />
     </section>
 
     <section class="now-playing">
@@ -129,6 +135,7 @@
 
 @code {
     private ElementReference songPicker;
+    private ElementReference backupPicker;
     private readonly List<SongFile> songs = new();
     private DotNetObjectReference<PlayerPage>? selfReference;
     private int currentIndex = -1;
@@ -147,12 +154,14 @@
     private readonly Dictionary<string, string> selectedQualityKeys = new(StringComparer.Ordinal);
     private long storageBytes;
     private long storageQuotaBytes;
+    private string backupStatus = string.Empty;
 
     private string CurrentTitle => currentIndex >= 0 ? songs[currentIndex].Title : "还没有播放歌曲";
     private string CurrentArtist => currentIndex >= 0 ? "本地音乐" : "点击导入歌曲开始";
     private string StorageSummary => storageBytes <= 0
         ? "刷新或重新打开后仍会保留"
         : $"歌曲占用 {FormatBytes(storageBytes)}" + (storageQuotaBytes > 0 ? $" · 浏览器配额约 {FormatBytes(storageQuotaBytes)}" : "");
+    private string BackupSummary => string.IsNullOrWhiteSpace(backupStatus) ? string.Empty : $" · {backupStatus}";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -190,6 +199,39 @@
 
     private async Task OpenPickerAsync() =>
         await JS.InvokeVoidAsync("yfPlayer.openPicker", songPicker);
+
+    private async Task BackupLibraryAsync()
+    {
+        if (songs.Count == 0) { backupStatus = "没有可备份的歌曲"; return; }
+        try
+        {
+            BackupResult result = await JS.InvokeAsync<BackupResult>("yfPlayer.exportBackup");
+            backupStatus = $"已备份 {result.TrackCount} 首";
+        }
+        catch (Exception ex) { backupStatus = $"备份失败：{FirstErrorLine(ex.Message)}"; }
+    }
+
+    private async Task RestoreLibraryAsync(ChangeEventArgs _)
+    {
+        try
+        {
+            SongFile[] restored = await JS.InvokeAsync<SongFile[]>("yfPlayer.importBackup", backupPicker);
+            songs.Clear();
+            songs.AddRange(restored);
+            currentIndex = songs.Count > 0 ? 0 : -1;
+            loadedIndex = -1;
+            currentSeconds = durationSeconds = 0;
+            progressValue = 0;
+            isPlaying = false;
+            await RefreshStorageAsync();
+            backupStatus = $"恢复完成，共 {songs.Count} 首";
+        }
+        catch (Exception ex) { backupStatus = $"恢复失败：{FirstErrorLine(ex.Message)}"; }
+    }
+
+    private static string FirstErrorLine(string message) =>
+        (message.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "未知错误")
+            .Replace("Error: ", string.Empty, StringComparison.OrdinalIgnoreCase);
 
     private async Task PlayTrackAsync(int index, double startSeconds = 0)
     {
@@ -428,4 +470,5 @@
         public long TrackBytes { get; set; }
         public long QuotaBytes { get; set; }
     }
+    public sealed class BackupResult { public int TrackCount { get; set; } }
 }

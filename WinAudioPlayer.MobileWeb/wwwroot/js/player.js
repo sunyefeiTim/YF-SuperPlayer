@@ -74,6 +74,39 @@ window.yfPlayer = (() => {
         };
     }
 
+    function readAllTracks() {
+        return new Promise(async (resolve, reject) => {
+            const db = await openDatabase();
+            const transaction = db.transaction(trackStoreName, "readonly");
+            const request = transaction.objectStore(trackStoreName).getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+            transaction.oncomplete = () => db.close();
+        });
+    }
+
+    function blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || "").split(",", 2)[1] || "");
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    function base64ToBlob(data, type) {
+        const binary = atob(data);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+        return new Blob([bytes], { type: type || "application/octet-stream" });
+    }
+
+    function clearTrackUrls() {
+        objectUrls.forEach(url => URL.revokeObjectURL(url));
+        objectUrls.clear();
+        trackUrls.clear();
+    }
+
     function notify() {
         if (!dotnet || !audio) return;
         savePlaybackMemory(audio.paused);
@@ -120,30 +153,84 @@ window.yfPlayer = (() => {
             return imported;
         },
         async getSavedTracks() {
-            const records = await new Promise(async (resolve, reject) => {
-                const db = await openDatabase();
-                const transaction = db.transaction(trackStoreName, "readonly");
-                const request = transaction.objectStore(trackStoreName).getAll();
-                request.onsuccess = () => resolve(request.result || []);
-                request.onerror = () => reject(request.error);
-                transaction.oncomplete = () => db.close();
-            });
+            const records = await readAllTracks();
             return records.sort((a, b) => a.savedAt - b.savedAt).map(toClientTrack);
         },
         async getStorageInfo() {
-            const records = await new Promise(async (resolve, reject) => {
-                const db = await openDatabase();
-                const transaction = db.transaction(trackStoreName, "readonly");
-                const request = transaction.objectStore(trackStoreName).getAll();
-                request.onsuccess = () => resolve(request.result || []);
-                request.onerror = () => reject(request.error);
-                transaction.oncomplete = () => db.close();
-            });
+            const records = await readAllTracks();
             const estimate = await navigator.storage?.estimate?.().catch(() => null);
             return {
                 trackBytes: records.reduce((sum, track) => sum + Number(track.blob?.size || 0), 0),
                 quotaBytes: Number(estimate?.quota || 0)
             };
+        },
+        async exportBackup() {
+            const records = await readAllTracks();
+            if (!records.length) throw new Error("没有可备份的歌曲");
+            const tracks = [];
+            for (const track of records) {
+                tracks.push({
+                    id: track.id,
+                    title: track.title,
+                    fileName: track.fileName,
+                    fileType: track.fileType,
+                    savedAt: track.savedAt,
+                    blobType: track.blob?.type || "application/octet-stream",
+                    data: await blobToBase64(track.blob)
+                });
+            }
+            const backup = {
+                signature: "YF-SuperPlayer-Backup",
+                version: 1,
+                exportedAt: new Date().toISOString(),
+                playbackMemory: this.getPlaybackMemory(),
+                tracks
+            };
+            const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `YF-SuperPlayer-${new Date().toISOString().slice(0, 10)}.yfplayer`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 30000);
+            return { trackCount: tracks.length };
+        },
+        async importBackup(input) {
+            const file = input?.files?.[0];
+            if (!file) throw new Error("请选择播放器备份文件");
+            let backup;
+            try { backup = JSON.parse(await file.text()); }
+            catch { input.value = ""; throw new Error("备份文件无法读取或已经损坏"); }
+            if (backup?.signature !== "YF-SuperPlayer-Backup" || backup?.version !== 1 || !Array.isArray(backup.tracks)) {
+                input.value = "";
+                throw new Error("这不是有效的 YF-SuperPlayer 备份文件");
+            }
+            if (audio) {
+                audio.pause();
+                audio.removeAttribute("src");
+                audio.load();
+            }
+            activeTrackId = "";
+            clearTrackUrls();
+            for (const item of backup.tracks) {
+                if (!item?.id || !item?.data) continue;
+                const track = {
+                    id: String(item.id),
+                    title: String(item.title || item.fileName || "未命名歌曲"),
+                    fileName: String(item.fileName || "song.audio"),
+                    fileType: String(item.fileType || "AUDIO"),
+                    savedAt: Number(item.savedAt || Date.now()),
+                    blob: base64ToBlob(String(item.data), String(item.blobType || "application/octet-stream"))
+                };
+                await withStore("readwrite", store => store.put(track));
+            }
+            if (backup.playbackMemory) localStorage.setItem(playbackMemoryKey, JSON.stringify(backup.playbackMemory));
+            input.value = "";
+            navigator.storage?.persist?.().catch(() => {});
+            const records = await readAllTracks();
+            return records.sort((a, b) => a.savedAt - b.savedAt).map(toClientTrack);
         },
         async deleteTrack(id) {
             if (activeTrackId === id) {
